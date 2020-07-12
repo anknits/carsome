@@ -40,8 +40,17 @@ router.get("/", (req, res) => {
   AvailableSlot.find({
     $and: [{ date: date }, { seqId: { $gt: seq } }, { available: { $gt: 0 } }],
   })
+    .select("seqId startTime endTime -_id")
     .then((docs) => {
-      res.status(200).json(docs);
+      let slots = [];
+      docs.forEach((doc) => {
+        let slot = {
+          seqId: doc.seqId,
+          time: doc.startTime + " - " + doc.endTime,
+        };
+        slots.push(slot);
+      });
+      res.status(200).json(slots);
     })
     .catch((err) => {
       console.log(err);
@@ -62,9 +71,48 @@ router.get("/:date", (req, res) => {
   if (date.getDate() == new Date().getDate())
     return res.redirect("/api/availableSlots");
   date.setHours(8, 0, 0, 0);
-  AvailableSlot.find({ $and: [{ date: date }, { available: { $gt: 0 } }] })
+  AvailableSlot.find({
+    $and: [{ date: date }, { available: { $gt: 0 } }],
+  })
+    .select("seqId startTime endTime -_id")
     .then((docs) => {
-      res.status(200).json(docs);
+      let slots = [];
+      docs.forEach((doc) => {
+        let slot = {
+          seqId: doc.seqId,
+          time: doc.startTime + " - " + doc.endTime,
+        };
+        slots.push(slot);
+      });
+      res.status(200).json(slots);
+    })
+    .catch((err) => {
+      console.log(err);
+      res.status(500).json({
+        error: err,
+      });
+    });
+});
+
+router.post("/", (req, res) => {
+  let date = getDate(req.body.date);
+  let id = req.body.id;
+  if (date == null) return res.status(422).send("date is invalid");
+  if (isOldDate(date)) return res.status(422).send("date is old");
+  if (!isWithinNext21Days(date))
+    return res.status(422).send("date is beyond 21 days");
+  if (getTotal(req.body.date) == 0)
+    return res.status(422).send("we don't operate on sundays");
+  AvailableSlot.updateOne(
+    {
+      $and: [{ date: date }, { seqId: id }],
+    },
+    { $inc: { available: -1 } }
+  )
+    .then((docs) => {
+      if (docs.nModified > 0)
+        res.status(200).json("successfully booked your slot");
+      else res.status(200).json("couldn't book your slot");
     })
     .catch((err) => {
       console.log(err);
@@ -93,13 +141,12 @@ function getDate(dateParam) {
     return date;
   } catch (error) {
     return null;
-    //throw new Error("date or format is invalid");
   }
 }
 
 function isOldDate(dateParam) {
   let today = new Date();
-  const date = new Date(dateParam);
+  const date = getDate(dateParam);
   today.setMilliseconds(date.getMilliseconds());
   today.setSeconds(date.getSeconds());
   today.setMinutes(date.getMinutes());
@@ -107,9 +154,8 @@ function isOldDate(dateParam) {
 }
 
 function isWithinNext21Days(dateParam) {
-  const today = new Date();
   let after21Days = new Date();
-  after21Days.setDate(today.getDate() + 21);
+  after21Days.setDate(after21Days.getDate() + 21);
   return after21Days > dateParam;
 }
 
